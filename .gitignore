@@ -1,0 +1,8 @@
+build/
+dist/
+.DS_Store
+coverage.out
+coverage.html
+.env
+.playwright/
+.claude/
