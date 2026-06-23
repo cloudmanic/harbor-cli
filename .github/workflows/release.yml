@@ -1,0 +1,94 @@
+#
+# Copyright 2026 Cloudmanic Labs, LLC. All rights reserved.
+# Date: 2026-06-22
+#
+# release.yml builds cross-platform binaries and creates a GitHub release with
+# an auto-incrementing patch version on every push to main, then bumps the
+# Homebrew formula so `brew upgrade harbor` picks up the new release.
+#
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run tests
+        run: go test ./... -count=1
+
+      - name: Determine next version
+        id: version
+        run: |
+          # Latest vX.Y.Z tag, or v0.0.0 when none exist.
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          echo "Latest tag: $LATEST_TAG"
+
+          VERSION="${LATEST_TAG#v}"
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          MINOR=$(echo "$VERSION" | cut -d. -f2)
+          PATCH=$(echo "$VERSION" | cut -d. -f3)
+
+          if [ "$LATEST_TAG" = "v0.0.0" ]; then
+            NEXT_VERSION="v0.1.0"
+          else
+            PATCH=$((PATCH + 1))
+            NEXT_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          echo "Next version: $NEXT_VERSION"
+          echo "version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          LDFLAGS="-X github.com/cloudmanic/harbor-cli/cmd.version=${VERSION}"
+          mkdir -p dist
+          GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/harbor-darwin-amd64 .
+          GOOS=darwin  GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/harbor-darwin-arm64 .
+          GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/harbor-linux-amd64 .
+          GOOS=linux   GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/harbor-linux-arm64 .
+          GOOS=windows GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/harbor-windows-amd64.exe .
+
+      - name: Create tag
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          git tag "$VERSION"
+          git push origin "$VERSION"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: dist/*
+
+      - name: Update Homebrew formula version
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          BREW_VERSION="${VERSION#v}"
+          sed -i "s/version \".*\"/version \"${BREW_VERSION}\"/" Formula/harbor.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/harbor.rb
+          git commit -m "Update Homebrew formula to ${VERSION}"
+          git push origin main
