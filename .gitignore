@@ -5,3 +5,4 @@ coverage.out
 coverage.html
 .env
 .playwright/
+.claude/
