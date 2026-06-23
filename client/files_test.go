@@ -67,6 +67,43 @@ func TestUploadFileMultipart(t *testing.T) {
 	}
 }
 
+func TestUploadFileDetectsMIMEByExtension(t *testing.T) {
+	var rec recordedRequest
+	srv := newTestServer(t, &rec, 201, `{"hash":"abc","mime":"image/png"}`)
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pic.png")
+	if err := os.WriteFile(path, []byte("bytes; the .png extension drives detection"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// No explicit mime → the client must detect image/png and send it as the
+	// `mime` form field (otherwise the server stores application/octet-stream).
+	if _, err := testClient(srv.URL).UploadFile(path, "", "", false); err != nil {
+		t.Fatalf("UploadFile error: %v", err)
+	}
+	body := string(rec.Body)
+	if !strings.Contains(body, "image/png") {
+		t.Errorf("expected detected mime image/png in the multipart body:\n%s", body)
+	}
+}
+
+func TestUploadFileExplicitMIMEWins(t *testing.T) {
+	var rec recordedRequest
+	srv := newTestServer(t, &rec, 201, `{"hash":"abc"}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "data.bin")
+	_ = os.WriteFile(path, []byte("x"), 0644)
+	// An explicit mime is sent verbatim (no detection override).
+	if _, err := testClient(srv.URL).UploadFile(path, "application/zip", "", false); err != nil {
+		t.Fatalf("UploadFile error: %v", err)
+	}
+	if !strings.Contains(string(rec.Body), "application/zip") {
+		t.Errorf("explicit mime not sent:\n%s", rec.Body)
+	}
+}
+
 func TestGetFileDownloadAndRaw(t *testing.T) {
 	var rec recordedRequest
 	srv := newTestServer(t, &rec, 200, `{"download_url":"https://s3/x","mime":"image/png","size":10}`)
