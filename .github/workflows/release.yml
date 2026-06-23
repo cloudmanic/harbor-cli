@@ -87,6 +87,12 @@ jobs:
           VERSION=${{ steps.version.outputs.version }}
           BREW_VERSION="${VERSION#v}"
           sed -i "s/version \".*\"/version \"${BREW_VERSION}\"/" Formula/harbor.rb
+          # No-op when the formula is already at this version (e.g. the first
+          # release, where the committed version matches) — never fail the job.
+          if git diff --quiet -- Formula/harbor.rb; then
+            echo "Formula already at ${BREW_VERSION}; nothing to bump."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/harbor.rb
