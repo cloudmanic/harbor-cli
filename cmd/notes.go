@@ -128,9 +128,9 @@ var notesCreateCmd = &cobra.Command{
 
 // notesUpdateCmd partially updates a note.
 var notesUpdateCmd = &cobra.Command{
-	Use:     "update <id>",
-	Short:   "Update a note (only the flags you pass are changed)",
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <id>",
+	Short: "Update a note (only the flags you pass are changed)",
+	Args:  cobra.ExactArgs(1),
 	Example: `  harbor notes update 9c2e... --title "Plan (final)"
   harbor notes update 9c2e... --file updated.md`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -165,9 +165,9 @@ var notesUpdateCmd = &cobra.Command{
 
 // notesAppendCmd appends a fragment to a note's body.
 var notesAppendCmd = &cobra.Command{
-	Use:     "append <id>",
-	Short:   "Append content to the end of a note",
-	Args:    cobra.ExactArgs(1),
+	Use:   "append <id>",
+	Short: "Append content to the end of a note",
+	Args:  cobra.ExactArgs(1),
 	Example: `  harbor notes append 9c2e... --content "- one more thing"
   date | harbor notes append 9c2e... --stdin`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -193,10 +193,10 @@ var notesAppendCmd = &cobra.Command{
 
 // notesDeleteCmd trashes (or permanently expunges) a note.
 var notesDeleteCmd = &cobra.Command{
-	Use:     "delete <id>",
-	Short:   "Delete a note (trash by default, --permanent to expunge)",
-	Args:    cobra.ExactArgs(1),
-	Long:    "Move a note to the trash (recoverable with 'harbor trash restore'), or expunge it permanently with --permanent.",
+	Use:   "delete <id>",
+	Short: "Delete a note (trash by default, --permanent to expunge)",
+	Args:  cobra.ExactArgs(1),
+	Long:  "Move a note to the trash (recoverable with 'harbor trash restore'), or expunge it permanently with --permanent.",
 	Example: `  harbor notes delete 9c2e...
   harbor notes delete 9c2e... --permanent`,
 	RunE: func(cmd *cobra.Command, args []string) error {

@@ -22,8 +22,8 @@ var notebooksCmd = &cobra.Command{
 
 // notebooksListCmd lists notebooks.
 var notebooksListCmd = &cobra.Command{
-	Use:     "list",
-	Short:   "List notebooks",
+	Use:   "list",
+	Short: "List notebooks",
 	Example: `  harbor notebooks list
   harbor notebooks list --stack Projects --order -updated_at
   harbor notebooks list --json | jq '.data[].name'`,
@@ -70,8 +70,8 @@ var notebooksGetCmd = &cobra.Command{
 
 // notebooksCreateCmd creates a notebook.
 var notebooksCreateCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a notebook",
+	Use:   "create",
+	Short: "Create a notebook",
 	Example: `  harbor notebooks create --name "Work" --stack Projects
   harbor notebooks create --name "Secrets" --default-encrypt`,
 	RunE: func(cmd *cobra.Command, args []string) error {

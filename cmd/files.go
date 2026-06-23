@@ -97,9 +97,9 @@ var filesCheckCmd = &cobra.Command{
 
 // filesUploadCmd uploads a file via direct multipart.
 var filesUploadCmd = &cobra.Command{
-	Use:     "upload <path>",
-	Short:   "Upload a file",
-	Args:    cobra.ExactArgs(1),
+	Use:   "upload <path>",
+	Short: "Upload a file",
+	Args:  cobra.ExactArgs(1),
 	Example: `  harbor files upload diagram.png
   harbor files upload report.pdf --mime application/pdf`,
 	RunE: func(cmd *cobra.Command, args []string) error {

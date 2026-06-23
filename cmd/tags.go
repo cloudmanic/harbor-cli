@@ -85,8 +85,8 @@ var tagsGetCmd = &cobra.Command{
 
 // tagsCreateCmd creates a tag.
 var tagsCreateCmd = &cobra.Command{
-	Use:     "create",
-	Short:   "Create a tag",
+	Use:   "create",
+	Short: "Create a tag",
 	Example: `  harbor tags create --name Receipts
   harbor tags create --name 2026 --parent 1f0b...`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -113,9 +113,9 @@ var tagsCreateCmd = &cobra.Command{
 
 // tagsUpdateCmd renames and/or re-parents a tag.
 var tagsUpdateCmd = &cobra.Command{
-	Use:     "update <id>",
-	Short:   "Update a tag (rename and/or re-parent)",
-	Args:    cobra.ExactArgs(1),
+	Use:   "update <id>",
+	Short: "Update a tag (rename and/or re-parent)",
+	Args:  cobra.ExactArgs(1),
 	Example: `  harbor tags update 7a3c... --name "Receipts 2026"
   harbor tags update 7a3c... --top-level`,
 	RunE: func(cmd *cobra.Command, args []string) error {
