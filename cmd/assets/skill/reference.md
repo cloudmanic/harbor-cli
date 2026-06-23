@@ -1,0 +1,338 @@
+<!-- Harbor agent skill — command reference • v1.0.0 -->
+<!-- Copyright (c) 2026 Cloudmanic Labs, LLC. All rights reserved. Date: 2026-06-22 -->
+
+# Harbor CLI — full command reference
+
+A flag-by-flag map of every `harbor` command, for when `SKILL.md` doesn't cover
+what you need. The CLI's own help is always authoritative: `harbor <cmd> --help`.
+
+## Conventions
+
+- **Output:** styled tables by default; add **`--json`** for machine-readable
+  output (use it for anything you parse).
+- **Envelopes:** collections → `{ "data": [...], "paging": { limit, offset, total,
+  has_more } }`; note mutations (create/update/append) → `{ "note": {…}, "usn": N
+  }`; a single GET → the object directly. Errors → `{ "error": { code, message,
+  details, request_id } }`.
+- **IDs** are UUIDs. **Timestamps** are UTC epoch-milliseconds.
+- **Paging:** `--limit` (default 100, cap 500), `--offset`, `--order` (e.g.
+  `-updated_at,title`; leading `-` = descending). Check `.paging.has_more`.
+- **Exit codes:** `0` ok, `1` error.
+
+## Global flags (every command)
+
+| Flag | Purpose |
+|---|---|
+| `--json` | Raw JSON instead of tables |
+| `--no-color` | Disable ANSI color |
+| `-v, --verbose` | Include `request_id` + HTTP status on errors |
+| `--utc` | Render timestamps in UTC, not local |
+| `--api-url <url>` | Override API base URL (dev/staging; rarely needed) |
+
+Env: `HARBOR_API_URL` (same as `--api-url`), `NO_COLOR`.
+
+---
+
+## Authentication
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor login` | OAuth2 password login (interactive prompt) | `--email`, `--scope`, `--client-id`, `--show-token` |
+| `harbor logout` | Revoke session + clear local creds | `--all-devices` |
+| `harbor whoami` | Show current session (alias of `auth status`) | `--show-token` |
+| `harbor auth status` | Session status | `--show-token` |
+| `harbor auth refresh` | Force a token refresh now | |
+| `harbor auth forgot-password` | Request a reset email | `--email` |
+| `harbor auth reset-password` | Complete a reset (revokes sessions) | `--token` |
+| `harbor auth verify-email` | Verify email | `--token` |
+| `harbor auth resend-verification` | Resend verification email | `--email` |
+
+> Login is interactive (hidden password prompt). An agent normally can't perform
+> it — ask the user to run `harbor login`.
+
+---
+
+## Notebooks  (aliases: `notebook`, `nb`)
+
+Containers for notes; exactly one **default** notebook per account.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor notebooks list` | List notebooks | `--stack`, `--include-deleted`, paging |
+| `harbor notebooks get <id>` | One notebook | `--include-deleted` |
+| `harbor notebooks create` | Create | `--name` (req), `--stack`, `--default-encrypt` |
+| `harbor notebooks update <id>` | Partial update | `--name`, `--stack`, `--public`, `--make-default`, `--default-encrypt` |
+| `harbor notebooks delete <id>` | Tombstone | `--notes move_to_default\|trash` |
+
+`--make-default` promotes a notebook (the prior default is demoted; you can't
+"un-default" directly — promote another). The default notebook can't be deleted.
+
+---
+
+## Notes  (aliases: `note`, `n`)
+
+Bodies are Markdown (default) or HTML (`--format`), supplied via `--content`,
+`--file`, or `--stdin`. See `formatting.md`.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor notes list` | List notes | `--notebook`, `--tag`, `--updated-since`, `--deleted`, `--meta`, paging |
+| `harbor notes get <id>` | One note | `--format markdown\|html`, `--deleted` |
+| `harbor notes create` | Create (returns `{note,usn}`) | `--title`, `--notebook`, `--content/--file/--stdin`, `--format`, `--source-url`, `--author` |
+| `harbor notes update <id>` | Partial update (**body is replaced** if sent) | same as create + `--notebook` (move) |
+| `harbor notes append <id>` | Append to the END | `--content/--file/--stdin`, `--format` |
+| `harbor notes delete <id>` | Trash (or expunge) | `--permanent` |
+| `harbor notes tag <id>` | Attach a tag (idempotent) | `--tag-name` (creates if missing) or `--tag-id` |
+| `harbor notes untag <id>` | Detach a tag | `--tag-id` (req) |
+| `harbor notes tags <id>` | List a note's tags | paging |
+| `harbor notes set-tags <id>` | Replace the whole tag set | `--tags id1,id2` (`""` clears) |
+| `harbor notes links <id>` | Outgoing `harbor:note` links | paging |
+| `harbor notes backlinks <id>` | Live notes linking here | paging |
+| `harbor notes audit <id>` | Change log | `--action create\|update\|append\|delete\|restore\|tag\|move\|share`, `--order created_at\|usn`, paging |
+
+`--meta` omits bodies for lighter list payloads. List sort fields: `updated_at`,
+`created_at`, `title`, `usn`.
+
+---
+
+## Tags  (alias: `tag`)
+
+Hierarchical (nested). A tag's parent is set with `--parent` (or `--top-level`).
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor tags list` | List tags | `--top-level`, `--parent <id>`, `--include-deleted`, paging |
+| `harbor tags get <id>` | One tag | `--include-deleted` |
+| `harbor tags create` | Create | `--name` (req; no commas), `--parent` |
+| `harbor tags update <id>` | Rename / re-parent | `--name`, `--parent`, `--top-level` |
+| `harbor tags delete <id>` | Tombstone (untags notes) | `--children reparent_to_grandparent\|orphan` |
+| `harbor tags notes <id>` | Notes carrying a tag | `--notebook`, paging |
+
+---
+
+## Search  (Evernote-style grammar)
+
+`harbor search '<query>' [--json]`
+
+| Operator | Meaning |
+|---|---|
+| `tag:VALUE` | carries this tag (`tag:"two words"` for spaces) |
+| `notebook:VALUE` | in this notebook (id or name) |
+| `intitle:VALUE` | term in the title |
+| `resource:RTYPE` | has an attachment: `image\|pdf\|audio\|application\|any` |
+| `created:RANGE` | created date: `YYYYMMDD`, `YYYYMMDD..YYYYMMDD`, `day-N` |
+| `updated:RANGE` | last-updated date (same forms) |
+| `"exact phrase"` | consecutive, in-order words |
+| `term*` | prefix match |
+| `-token` | negate any token |
+
+Flags: `--notebook`, `--types note,attachment`, `--no-snippet`, paging.
+
+`harbor search coordinates --resource-id <id> [--query … | --terms a,b] [--page N]`
+returns OCR highlight boxes (pair with `--json`).
+
+---
+
+## Reminders  (aliases: `reminder`, `rem`)
+
+Times: epoch-ms, RFC3339, `YYYY-MM-DD`, or relative (`in 2h`, `in 3d`).
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor reminders set <id>` | Set/update due time | `--time` |
+| `harbor reminders list` | Notes with reminders | `--status active\|done\|all`, `--due-before`, paging |
+| `harbor reminders complete <id>` | Mark done | `--time` (completion moment) |
+| `harbor reminders clear <id>` | Remove reminder | |
+
+---
+
+## Templates  (aliases: `template`, `tpl`)
+
+Reusable note starting points. Built-in (system) templates are read-only.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor templates list` | List | `--include-system` (default true), `--include-deleted`, paging |
+| `harbor templates get <id>` | One template | `--include-deleted` |
+| `harbor templates create` | Create | `--name` (req), `--content/--file/--stdin`, `--format` |
+| `harbor templates update <id>` | Update (user templates only) | `--name`, content flags |
+| `harbor templates delete <id>` | Delete (user templates only) | |
+| `harbor templates apply <id>` | New note from template | `--title`, `--notebook`, `--tags id1,id2` |
+
+Content is copied verbatim (no token expansion). Applying into an
+encrypt-by-default notebook is rejected.
+
+---
+
+## Shortcuts  (aliases: `shortcut`, `sc`)
+
+Ordered sidebar pointers to a record or a saved search.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor shortcuts list` | List (by position) | `--include-deleted`, paging |
+| `harbor shortcuts get <id>` | One shortcut | `--include-deleted` |
+| `harbor shortcuts create` | Create | `--type note\|notebook\|tag\|search` (req), `--target-id` *or* `--query`, `--label`, `--position` |
+| `harbor shortcuts update <id>` | Update | `--label`, `--position`, `--target-id` *or* `--query` |
+| `harbor shortcuts delete <id>` | Tombstone | |
+| `harbor shortcuts reorder` | Renumber the whole list | `--order id1,id2,…` (every live id once) |
+
+`--type note|notebook|tag` requires `--target-id`; `--type search` requires
+`--query`.
+
+---
+
+## Sharing
+
+Public, read-only links. **Confirm before publishing.** Encrypted notes can't be
+shared.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor share publish <id>` | Publish (idempotent) → public URL | `--slug` |
+| `harbor share unpublish <id>` | Revoke (idempotent) | |
+| `harbor share open <token>` | Render a shared note (no login) | |
+
+JSON: `harbor share publish <id> --json \| jq -r '.data.public_url'`.
+
+---
+
+## History  (alias: `hist`)
+
+Forward-only version snapshots; revert restores a past version as a new one.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor history list <note-id>` | Snapshots (newest first) | paging |
+| `harbor history show <note-id> <ver-id>` | Full snapshot incl. content | `--format markdown\|html` |
+| `harbor history revert <note-id> <ver-id>` | Restore as new current version | |
+
+---
+
+## Trash  (aliases: `recycle`, `bin`)
+
+Recoverable recycle bin.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor trash list` | Notes in the bin | paging |
+| `harbor trash restore <id>` | Restore to live | |
+| `harbor trash expunge <id>` | Permanently delete one | |
+| `harbor trash empty` | Permanently delete ALL | `--yes` (required non-interactively) |
+
+---
+
+## Files / attachments  (alias: `file`)
+
+Content-addressed (sha256) blobs.
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor files upload <path>` | Upload (server sniffs MIME) | `--mime`, `--filename`, `--encrypted` |
+| `harbor files list` | List with linked notes | `--mime`, `--note-id`, `--ocr-status`, `--encrypted`, `--updated-since`, paging |
+| `harbor files get <hash>` | Presigned URL + metadata (no bytes) | |
+| `harbor files check` | Does a blob exist? | `--hash` (+`--size`) or `--file` (hash computed locally) |
+| `harbor files download <hash>` | Download bytes | `--output` (`-` = stdout), `--raw` |
+
+---
+
+## Sync  (raw USN engine — JSON-first; advanced)
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor sync pull` | Pull changes since a cursor | `--after-usn`, `--all`, `--limit`, `--device-id`, `--scope-id` |
+| `harbor sync push` | Push change envelopes | `--file <json\|->`, `--device-id`, `--scope-id` |
+| `harbor sync devices` | List devices + GC floor | |
+| `harbor sync register-device` | Register/refresh a device | `--device-id`, `--name`, `--platform` |
+| `harbor sync remove-device <id>` | Deregister | |
+| `harbor sync ack` | Advance a device cursor | `--device-id`, `--acked-usn` |
+
+Most note tasks never need `sync` — use the high-level commands.
+
+---
+
+## Settings  (aliases: `prefs`, `preferences`)
+
+Account preferences (NOT synced; last-write-wins). `set` is a partial update.
+
+| Command | What it does |
+|---|---|
+| `harbor settings get` | Effective settings |
+| `harbor settings set` | Update (only flags you pass) |
+
+`set` flags: `--theme system\|light\|dark`, `--default-notebook <id>` /
+`--clear-default-notebook`, `--default-sort`, `--locale`, `--timezone`,
+`--email-product-news`, `--email-reminders`, `--push-reminders`,
+`--editor-font-size`, `--editor-font-family sans\|serif\|mono`,
+`--editor-autosave`, `--editor-spellcheck`, `--editor-show-word-count`.
+
+---
+
+## Profile
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor profile get` | Show profile | |
+| `harbor profile update` | Update | `--name`, `--locale`, `--timezone`, `--email` (staged; needs password) |
+| `harbor profile change-password` | Change password (interactive) | |
+| `harbor profile confirm-email` | Confirm a staged email change | `--token` |
+| `harbor profile set-avatar` | Avatar from an uploaded image | `--hash` |
+| `harbor profile remove-avatar` | Remove avatar | |
+
+---
+
+## Sessions
+
+| Command | What it does |
+|---|---|
+| `harbor sessions list` | Active sessions (marks current) |
+| `harbor sessions revoke <family-id>` | Revoke one |
+| `harbor sessions revoke-others` | Revoke all but current |
+| `harbor sessions revoke-all` | Revoke all (incl. current) |
+
+---
+
+## Account  (destructive — confirm)
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor account export` | Start a full-account export job | |
+| `harbor account export-status <id>` | Poll / download the ZIP | `--download <path>` |
+| `harbor account delete` | Schedule deletion (grace period) | `--confirm "DELETE MY ACCOUNT"`, `--yes` |
+| `harbor account cancel-delete` | Cancel within grace window | |
+
+---
+
+## Import / Export (Evernote ENEX)
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor import enex <file.enex>` | Import an Evernote export | `--notebook`, `--filename` |
+| `harbor import status <job-id>` | Poll an import job | |
+| `harbor export enex` | Export notes to `.enex` | `--notebook` *or* `--notes id1,id2`, `--include-resources`, `--output` (`-`=stdout) |
+
+---
+
+## System / operational (public probes, no login)
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor status` | Health: liveness + readiness + version | (exits non-zero if not ready) |
+| `harbor api-version` | Server build version/commit | |
+| `harbor openapi` | Fetch the OpenAPI 3.0 spec | `-o, --output` |
+
+---
+
+## Skill (this skill's installer)
+
+| Command | What it does | Key flags |
+|---|---|---|
+| `harbor skill install` | Install/update this skill into your agent | `--agent claude\|codex\|cursor`, `--dir`, `--project`, `--force` |
+| `harbor skill show [file]` | Print a bundled skill file (default `SKILL.md`) | |
+| `harbor skill path` | Print the install path | `--agent`, `--dir`, `--project` |
+
+`--agent` installs in each tool's native form: Claude Code → a
+`~/.claude/skills/harbor/` skill directory; Codex → a managed block in
+`~/.codex/AGENTS.md`; Cursor → a `.cursor/rules/harbor.mdc` rule file. `install`
+backs up any existing copy first, so a CLI upgrade can refresh the skill without
+clobbering user edits.
