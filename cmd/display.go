@@ -65,6 +65,24 @@ func dim(s string) string { return colorize(s, text.Faint) }
 // bold renders bold text (used to emphasize ids and headline values).
 func bold(s string) string { return colorize(s, text.Bold) }
 
+// star renders the default-marker glyph in yellow.
+func star() string { return colorize("★", text.FgYellow) }
+
+// colorizeStatus colors a status word: green for success-ish, red for failure,
+// yellow for in-between (e.g. conflict, pending, degraded).
+func colorizeStatus(status string) string {
+	switch status {
+	case "applied", "completed", "ok", "active", "done", "ready":
+		return colorize(status, text.FgGreen)
+	case "rejected", "failed", "error", "expired":
+		return colorize(status, text.FgRed)
+	case "conflict", "pending", "running", "queued", "degraded", "stale":
+		return colorize(status, text.FgYellow)
+	default:
+		return status
+	}
+}
+
 // ===========================================================================
 // JSON navigation helpers
 // ===========================================================================
@@ -265,6 +283,37 @@ func truncate(s string, n int) string {
 		return string(r[:n])
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// stripHTML removes tags and unescapes a handful of common entities, for a
+// readable terminal preview of an HTML note body or a search snippet. It is a
+// display convenience, not a parser — full fidelity is always available via the
+// raw --json content.
+func stripHTML(s string) string {
+	var b strings.Builder
+	depth := 0
+	for _, r := range s {
+		switch r {
+		case '<':
+			depth++
+		case '>':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if depth == 0 {
+				b.WriteRune(r)
+			}
+		}
+	}
+	out := b.String()
+	for _, rep := range [][2]string{
+		{"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"},
+		{"&quot;", "\""}, {"&#39;", "'"}, {"&nbsp;", " "},
+	} {
+		out = strings.ReplaceAll(out, rep[0], rep[1])
+	}
+	return strings.TrimSpace(out)
 }
 
 // boolMark renders a boolean as a compact check/dot glyph (green/dim).

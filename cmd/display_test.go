@@ -4,9 +4,39 @@
 package cmd
 
 import (
+	"io"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/cloudmanic/harbor-cli/client"
 )
+
+// apiErr builds a *client.APIError with the given code, for error-mapping tests.
+func apiErr(code string) *client.APIError {
+	return &client.APIError{Code: code, Message: code, Status: 422}
+}
+
+// captureStdout runs fn with os.Stdout redirected to a pipe and returns what it
+// wrote. Shared across cmd display tests. Color is disabled for stable output.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	noColorFlag = true
+	colorReady = false
+	defer func() { noColorFlag = false; colorReady = false }()
+
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	return string(out)
+}
 
 func TestEpochMS(t *testing.T) {
 	utcFlag = true

@@ -102,6 +102,17 @@ func (c *Client) doGet(path string, params map[string]string) ([]byte, error) {
 	return c.request(http.MethodGet, full, nil, "", true)
 }
 
+// doGetQuery is like doGet but takes a pre-built url.Values, so callers can
+// send an explicitly-empty parameter (e.g. parent_id= to mean "top-level
+// only") — buildURL's map form intentionally drops empty values.
+func (c *Client) doGetQuery(path string, q url.Values) ([]byte, error) {
+	full := c.BaseURL + path
+	if enc := q.Encode(); enc != "" {
+		full += "?" + enc
+	}
+	return c.request(http.MethodGet, full, nil, "", true)
+}
+
 // doPost performs a POST request with a JSON-encoded body.
 func (c *Client) doPost(path string, body any) ([]byte, error) {
 	return c.doJSON(http.MethodPost, path, body)
@@ -187,17 +198,26 @@ func (c *Client) doGetRaw(path string, params map[string]string) (*http.Response
 	return c.rawRequest(http.MethodGet, full, true)
 }
 
-// request sends a request with a buffered body so it can be rebuilt for a
-// retry. On a 401 invalid_token with a refresh hook set, it refreshes once and
-// retries the original request exactly once.
+// request sends a request and returns just the body, discarding the status.
+// Most callers want this; use requestWithStatus when the 2xx code matters
+// (e.g. attach-tag's 200-existing vs 201-created).
 func (c *Client) request(method, fullURL string, body []byte, contentType string, allowRefresh bool) ([]byte, error) {
+	data, _, err := c.requestWithStatus(method, fullURL, body, contentType, allowRefresh)
+	return data, err
+}
+
+// requestWithStatus sends a request with a buffered body so it can be rebuilt
+// for a retry, and returns the response body and HTTP status. On a 401
+// invalid_token with a refresh hook set, it refreshes once and retries the
+// original request exactly once.
+func (c *Client) requestWithStatus(method, fullURL string, body []byte, contentType string, allowRefresh bool) ([]byte, int, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
 	req, err := http.NewRequest(method, fullURL, reader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, 0, fmt.Errorf("failed to create request: %w", err)
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -206,28 +226,28 @@ func (c *Client) request(method, fullURL string, body []byte, contentType string
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, 0, fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
+		return nil, resp.StatusCode, fmt.Errorf("failed to read response body: %w", err)
 	}
 	c.LastRequestID = resp.Header.Get("X-Request-Id")
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return respBody, nil
+		return respBody, resp.StatusCode, nil
 	}
 
 	apiErr := parseAPIError(respBody, resp.StatusCode, c.LastRequestID)
 	if allowRefresh && resp.StatusCode == http.StatusUnauthorized && apiErr.Code == "invalid_token" && c.OnUnauthorized != nil {
 		if newTok, ok := c.refresh(); ok {
 			c.AccessToken = newTok
-			return c.request(method, fullURL, body, contentType, false)
+			return c.requestWithStatus(method, fullURL, body, contentType, false)
 		}
 	}
-	return nil, apiErr
+	return nil, resp.StatusCode, apiErr
 }
 
 // rawRequest is request's streaming sibling for downloads. On success it

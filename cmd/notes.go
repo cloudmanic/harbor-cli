@@ -1,0 +1,347 @@
+// Copyright 2026 Cloudmanic Labs, LLC. All rights reserved.
+// Date: 2026-06-22
+
+package cmd
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/cloudmanic/harbor-cli/client"
+	"github.com/spf13/cobra"
+)
+
+// notesCmd is the parent for note content commands. It also hosts the note↔tag
+// and read-only insight subcommands (registered in their own files).
+var notesCmd = &cobra.Command{
+	Use:     "notes",
+	Aliases: []string{"note", "n"},
+	Short:   "Manage notes (list, get, create, update, delete, append)",
+	GroupID: groupContent,
+	Long: `Create and manage notes. Bodies accept Markdown (default) or HTML via
+--format, supplied with --content, --file, or piped via --stdin — convenient
+for both humans and AI agents.`,
+}
+
+// notesListCmd lists notes.
+var notesListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List notes",
+	Example: `  harbor notes list
+  harbor notes list --notebook 5b1f... --order -created_at
+  harbor notes list --meta --json | jq '.data[] | {id, title}'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		params := pagingParams(cmd)
+		if s := stringFlag(cmd, "notebook"); s != "" {
+			params["notebook_id"] = s
+		}
+		if s := stringFlag(cmd, "tag"); s != "" {
+			params["tag"] = s
+		}
+		if s := stringFlag(cmd, "updated-since"); s != "" {
+			params["updated_since"] = s
+		}
+		if boolFlag(cmd, "deleted") {
+			params["deleted"] = "true"
+		}
+		if boolFlag(cmd, "meta") {
+			params["fields"] = "meta"
+		}
+		data, err := c.ListNotes(params)
+		if err != nil {
+			return err
+		}
+		printResult(data, displayNotes)
+		return nil
+	},
+}
+
+// notesGetCmd fetches one note, defaulting to readable Markdown content.
+var notesGetCmd = &cobra.Command{
+	Use:     "get <id>",
+	Short:   "Get a note by id",
+	Args:    cobra.ExactArgs(1),
+	Example: "  harbor notes get 9c2e... --format markdown",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		params := map[string]string{}
+		format := stringFlag(cmd, "format")
+		if format != "" {
+			params["format"] = format
+		}
+		if boolFlag(cmd, "deleted") {
+			params["deleted"] = "true"
+		}
+		data, err := c.GetNote(args[0], params)
+		if err != nil {
+			return err
+		}
+		printResult(data, displayNote)
+		return nil
+	},
+}
+
+// notesCreateCmd creates a note.
+var notesCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a note",
+	Long:  "Create a note. Provide the body with --content, --file, or --stdin (Markdown by default; --format html for HTML).",
+	Example: `  harbor notes create --title "Plan" --content "# Goals\n\n- ship it"
+  echo "# Notes" | harbor notes create --title Standup --stdin
+  harbor notes create --title Recipe --file recipe.md --notebook 5b1f...`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		content, format, hasContent, err := readContent(cmd)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{}
+		addStringIfChanged(cmd, body, "title", "title")
+		if s := stringFlag(cmd, "notebook"); s != "" {
+			body["notebook_id"] = s
+		}
+		addStringIfChanged(cmd, body, "source-url", "source_url")
+		addStringIfChanged(cmd, body, "author", "author")
+		if hasContent {
+			body["content"] = content
+			body["content_format"] = format
+		}
+		data, err := c.CreateNote(body)
+		if err != nil {
+			return mapNoteError(err)
+		}
+		printResult(data, displayNote)
+		return nil
+	},
+}
+
+// notesUpdateCmd partially updates a note.
+var notesUpdateCmd = &cobra.Command{
+	Use:     "update <id>",
+	Short:   "Update a note (only the flags you pass are changed)",
+	Args:    cobra.ExactArgs(1),
+	Example: `  harbor notes update 9c2e... --title "Plan (final)"
+  harbor notes update 9c2e... --file updated.md`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		content, format, hasContent, err := readContent(cmd)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{}
+		addStringIfChanged(cmd, body, "title", "title")
+		addStringIfChanged(cmd, body, "notebook", "notebook_id")
+		addStringIfChanged(cmd, body, "source-url", "source_url")
+		addStringIfChanged(cmd, body, "author", "author")
+		if hasContent {
+			body["content"] = content
+			body["content_format"] = format
+		}
+		if len(body) == 0 {
+			return errors.New("nothing to update — pass --title, content, or another field")
+		}
+		data, err := c.UpdateNote(args[0], body)
+		if err != nil {
+			return mapNoteError(err)
+		}
+		printResult(data, displayNote)
+		return nil
+	},
+}
+
+// notesAppendCmd appends a fragment to a note's body.
+var notesAppendCmd = &cobra.Command{
+	Use:     "append <id>",
+	Short:   "Append content to the end of a note",
+	Args:    cobra.ExactArgs(1),
+	Example: `  harbor notes append 9c2e... --content "- one more thing"
+  date | harbor notes append 9c2e... --stdin`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		content, format, hasContent, err := readContent(cmd)
+		if err != nil {
+			return err
+		}
+		if !hasContent {
+			return errors.New("append requires content — pass --content, --file, or --stdin")
+		}
+		data, err := c.AppendNote(args[0], map[string]any{"content": content, "content_format": format})
+		if err != nil {
+			return mapNoteError(err)
+		}
+		printResult(data, displayNote)
+		return nil
+	},
+}
+
+// notesDeleteCmd trashes (or permanently expunges) a note.
+var notesDeleteCmd = &cobra.Command{
+	Use:     "delete <id>",
+	Short:   "Delete a note (trash by default, --permanent to expunge)",
+	Args:    cobra.ExactArgs(1),
+	Long:    "Move a note to the trash (recoverable with 'harbor trash restore'), or expunge it permanently with --permanent.",
+	Example: `  harbor notes delete 9c2e...
+  harbor notes delete 9c2e... --permanent`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c, _, err := loadClientFromConfig()
+		if err != nil {
+			return err
+		}
+		permanent := boolFlag(cmd, "permanent")
+		if _, err := c.DeleteNote(args[0], permanent); err != nil {
+			return err
+		}
+		if permanent {
+			fmt.Println("Note permanently deleted.")
+		} else {
+			fmt.Println("Note moved to trash.")
+		}
+		return nil
+	},
+}
+
+// mapNoteError gives friendly messages for note-specific codes.
+func mapNoteError(err error) error {
+	var apiErr *client.APIError
+	if errors.As(err, &apiErr) {
+		switch apiErr.Code {
+		case "note_title_too_long":
+			return errors.New("the note title is too long (max 255 characters)")
+		case "note_too_large":
+			return errors.New("the note body is too large (max 5 MiB)")
+		case "append_not_supported_encrypted":
+			return errors.New("cannot append to an encrypted note")
+		}
+	}
+	return err
+}
+
+// ===========================================================================
+// Display
+// ===========================================================================
+
+// extractNote unwraps a note from either a bare note object or a {note, usn}
+// mutation envelope, returning the note map and the new USN string (if any).
+func extractNote(data []byte) (map[string]any, string) {
+	root := parseJSON(client.UnwrapData(data))
+	if root == nil {
+		return nil, ""
+	}
+	if n := nested(root, "note"); n != nil {
+		return n, str(root, "usn")
+	}
+	return root, ""
+}
+
+// displayNotes renders a note collection as a table.
+func displayNotes(data []byte) {
+	items := client.CollectionItems(data)
+	headers := []string{"ID", "TITLE", "NOTEBOOK", "🔒", "WORDS", "USN", "UPDATED"}
+	rows := make([][]string, 0, len(items))
+	for _, raw := range items {
+		n := parseJSON(raw)
+		rows = append(rows, []string{
+			str(n, "id"),
+			truncate(str(n, "title"), 40),
+			shortID(str(n, "notebook_id"), 8),
+			lockMark(boolean(n, "is_encrypted")),
+			str(n, "word_count"),
+			dim(str(n, "usn")),
+			epochMS(num(n, "updated_at")),
+		})
+	}
+	printTable(headers, rows)
+	printPagingFooter(data)
+}
+
+// displayNote renders a single note (bare or mutation) as a detail view plus
+// its body. Encrypted bodies are shown as a placeholder.
+func displayNote(data []byte) {
+	n, usn := extractNote(data)
+	if n == nil {
+		fmt.Println(string(data))
+		return
+	}
+	pairs := [][2]string{
+		{"ID", bold(str(n, "id"))},
+		{"Title", str(n, "title")},
+		{"Notebook", str(n, "notebook_id")},
+		{"Encrypted", boolMark(boolean(n, "is_encrypted"))},
+		{"Words", str(n, "word_count")},
+		{"USN", str(n, "usn")},
+		{"Updated", epochMS(num(n, "updated_at"))},
+	}
+	if usn != "" {
+		pairs = append(pairs, [2]string{"New USN", bold(usn)})
+	}
+	printKV(pairs)
+
+	fmt.Println()
+	if boolean(n, "is_encrypted") {
+		fmt.Println(dim("[encrypted]"))
+		return
+	}
+	body := str(n, "content")
+	if strings.Contains(body, "<") && strings.Contains(body, ">") {
+		body = stripHTML(body)
+	}
+	if body != "" {
+		fmt.Println(body)
+	}
+}
+
+// lockMark renders the encryption indicator for note lists.
+func lockMark(encrypted bool) string {
+	if encrypted {
+		return "🔒"
+	}
+	return dim("·")
+}
+
+func init() {
+	addPagingFlags(notesListCmd)
+	notesListCmd.Flags().String("notebook", "", "Filter to one notebook id")
+	notesListCmd.Flags().String("tag", "", "Filter to notes carrying this tag id")
+	notesListCmd.Flags().String("updated-since", "", "Only notes updated at or after this epoch-ms")
+	notesListCmd.Flags().Bool("deleted", false, "Include trashed notes")
+	notesListCmd.Flags().Bool("meta", false, "Omit note content for lighter listings")
+
+	notesGetCmd.Flags().String("format", "markdown", "Content format to return: markdown or html")
+	notesGetCmd.Flags().Bool("deleted", false, "Return the note even if trashed")
+
+	notesCreateCmd.Flags().String("title", "", "Note title")
+	notesCreateCmd.Flags().String("notebook", "", "Notebook id (defaults to your default notebook)")
+	notesCreateCmd.Flags().String("source-url", "", "Source URL attribute")
+	notesCreateCmd.Flags().String("author", "", "Author attribute")
+	addContentFlags(notesCreateCmd)
+
+	notesUpdateCmd.Flags().String("title", "", "New title")
+	notesUpdateCmd.Flags().String("notebook", "", "Move to this notebook id")
+	notesUpdateCmd.Flags().String("source-url", "", "Source URL attribute")
+	notesUpdateCmd.Flags().String("author", "", "Author attribute")
+	addContentFlags(notesUpdateCmd)
+
+	addContentFlags(notesAppendCmd)
+
+	notesDeleteCmd.Flags().Bool("permanent", false, "Expunge permanently instead of trashing")
+
+	notesCmd.AddCommand(notesListCmd, notesGetCmd, notesCreateCmd, notesUpdateCmd, notesAppendCmd, notesDeleteCmd)
+	rootCmd.AddCommand(notesCmd)
+}

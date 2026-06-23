@@ -40,6 +40,7 @@ type Credentials struct {
 	APIURL       string `json:"api_url"`
 	ClientID     string `json:"client_id"`
 	Email        string `json:"email"`
+	UserID       string `json:"user_id,omitempty"` // resolved lazily; used as the sync scope_id
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
