@@ -32,6 +32,13 @@ const (
 
 	// configFile is the credentials file name.
 	configFile = "credentials.json"
+
+	// keystoreCacheFile caches the opaque HRBK1 encryption keystore blob so the
+	// CLI need not re-pull it from sync on every encrypt/decrypt. The blob is the
+	// WRAPPED master key — useless without the passphrase — so caching it on disk
+	// does not weaken the zero-knowledge model. The passphrase and the unwrapped
+	// master key are NEVER written to disk.
+	keystoreCacheFile = "keystore.json"
 )
 
 // Credentials is the on-disk session: API target, identity, and the OAuth token
@@ -146,6 +153,89 @@ func Clear() error {
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("unable to remove credentials file: %w", err)
+	}
+	return nil
+}
+
+// keystoreCachePath returns the full path to the cached keystore-blob file.
+func keystoreCachePath() (string, error) {
+	dir, err := ConfigDirPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, keystoreCacheFile), nil
+}
+
+// LoadKeystoreBlob returns the cached HRBK1 keystore blob, or "" (no error) when
+// no cache exists yet. The blob is the wrapped master key and is safe at rest.
+func LoadKeystoreBlob() (string, error) {
+	path, err := keystoreCachePath()
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("unable to read keystore cache: %w", err)
+	}
+	var c struct {
+		Blob string `json:"blob"`
+	}
+	if err := json.Unmarshal(data, &c); err != nil {
+		return "", fmt.Errorf("unable to parse keystore cache: %w", err)
+	}
+	return c.Blob, nil
+}
+
+// SaveKeystoreBlob atomically writes the keystore blob cache with 0600
+// permissions, creating the config directory if needed.
+func SaveKeystoreBlob(blob string) error {
+	dir, err := ConfigDirPath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("unable to create config directory: %w", err)
+	}
+	data, err := json.MarshalIndent(map[string]string{"blob": blob}, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(dir, keystoreCacheFile)
+	tmp, err := os.CreateTemp(dir, ".keystore-*.tmp")
+	if err != nil {
+		return fmt.Errorf("unable to create temp keystore file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0600); err != nil {
+		tmp.Close()
+		return fmt.Errorf("unable to set keystore permissions: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("unable to write keystore cache: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("unable to flush keystore cache: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("unable to finalize keystore cache: %w", err)
+	}
+	return nil
+}
+
+// ClearKeystoreBlob removes the cached keystore blob. A missing file is not an
+// error, so logout/reset is idempotent.
+func ClearKeystoreBlob() error {
+	path, err := keystoreCachePath()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("unable to remove keystore cache: %w", err)
 	}
 	return nil
 }

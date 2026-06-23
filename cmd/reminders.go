@@ -40,7 +40,7 @@ reminders are shown; use --status to include done or all reminders. Use
   harbor reminders list --due-before "in 2h"
   harbor reminders list --status done --json | jq '.data[] | {id, title}'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -60,6 +60,7 @@ reminders are shown; use --status to include done or all reminders. Use
 		if err != nil {
 			return mapReminderError(err)
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayReminders)
 		return nil
 	},

@@ -26,6 +26,8 @@ cmd/                    cobra command tree — ONE FILE PER DOMAIN
   notebooks.go          notes.go  tags.go  note_tags.go  sync.go  files.go  search.go
   history.go  trash.go  templates.go  shortcuts.go  reminders.go  insights.go
   share.go  settings.go  profile.go  sessions.go  account.go  importexport.go  operational.go
+  crypto.go             `harbor crypto setup/status/sync/rotate` + the transparent
+                        encrypt-on-write / decrypt-on-read wiring (HARBOR_PASSPHRASE)
   skill.go              `harbor skill install/show/path` — installs the bundled agent skill (Claude/Codex/Cursor)
   assets/skill/         embedded skill content (SKILL.md + formatting.md + reference.md)
 client/                 HTTP client + API methods — ONE FILE PER DOMAIN
@@ -33,8 +35,11 @@ client/                 HTTP client + API methods — ONE FILE PER DOMAIN
   errors.go             APIError (typed error envelope)
   envelope.go           response-envelope decoders (collection/paging/data/token)
   auth.go  notebooks.go  notes.go  …                (mirror cmd/ domains)
+crypto/                 client-side E2E note crypto (zero-knowledge server)
+  crypto.go             HRBK1 keystore + HRBC2 field envelope (Argon2id KEK, AES-256-GCM)
+  README.md             the canonical cross-client interop contract
 config/
-  config.go             credentials.json load/save (0600), expiry helpers
+  config.go             credentials.json load/save (0600), expiry helpers; keystore-blob cache
 Formula/harbor.rb       Homebrew formula (version auto-bumped by release CI)
 .github/workflows/      test.yml (CI) + release.yml (CD)
 ```

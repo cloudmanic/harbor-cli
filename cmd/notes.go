@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cloudmanic/harbor-cli/client"
+	"github.com/cloudmanic/harbor-cli/crypto"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +33,7 @@ var notesListCmd = &cobra.Command{
   harbor notes list --notebook 5b1f... --order -created_at
   harbor notes list --meta --json | jq '.data[] | {id, title}'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -56,6 +57,7 @@ var notesListCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayNotes)
 		return nil
 	},
@@ -68,7 +70,7 @@ var notesGetCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	Example: "  harbor notes get 9c2e... --format markdown",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -84,6 +86,7 @@ var notesGetCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayNote)
 		return nil
 	},
@@ -98,7 +101,7 @@ var notesCreateCmd = &cobra.Command{
   echo "# Notes" | harbor notes create --title Standup --stdin
   harbor notes create --title Recipe --file recipe.md --notebook 5b1f...`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -108,8 +111,9 @@ var notesCreateCmd = &cobra.Command{
 		}
 		body := map[string]any{}
 		addStringIfChanged(cmd, body, "title", "title")
-		if s := stringFlag(cmd, "notebook"); s != "" {
-			body["notebook_id"] = s
+		notebookID := stringFlag(cmd, "notebook")
+		if notebookID != "" {
+			body["notebook_id"] = notebookID
 		}
 		addStringIfChanged(cmd, body, "source-url", "source_url")
 		addStringIfChanged(cmd, body, "author", "author")
@@ -117,10 +121,26 @@ var notesCreateCmd = &cobra.Command{
 			body["content"] = content
 			body["content_format"] = format
 		}
+		// Encrypt client-side when --encrypt is set or the target notebook defaults
+		// to encryption. The note id is generated first because the field AAD binds
+		// to it; an encrypted note must carry a content envelope.
+		encrypt, err := shouldEncryptCreate(cmd, c, notebookID)
+		if err != nil {
+			return err
+		}
+		if encrypt {
+			if !hasContent {
+				return errors.New("an encrypted note needs content (the server requires a content envelope)")
+			}
+			if err := encryptCreateBody(c, creds, body); err != nil {
+				return err
+			}
+		}
 		data, err := c.CreateNote(body)
 		if err != nil {
 			return mapNoteError(err)
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayNote)
 		return nil
 	},
@@ -134,7 +154,7 @@ var notesUpdateCmd = &cobra.Command{
 	Example: `  harbor notes update 9c2e... --title "Plan (final)"
   harbor notes update 9c2e... --file updated.md`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -154,10 +174,16 @@ var notesUpdateCmd = &cobra.Command{
 		if len(body) == 0 {
 			return errors.New("nothing to update — pass --title, content, or another field")
 		}
+		// If the note is encrypted, re-seal any title/content we are sending.
+		// Refuse to overwrite ciphertext with plaintext when no passphrase is set.
+		if err := encryptUpdateBody(c, creds, args[0], body); err != nil {
+			return err
+		}
 		data, err := c.UpdateNote(args[0], body)
 		if err != nil {
 			return mapNoteError(err)
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayNote)
 		return nil
 	},
@@ -294,11 +320,15 @@ func displayNote(data []byte) {
 	printKV(pairs)
 
 	fmt.Println()
-	if boolean(n, "is_encrypted") {
+	body := str(n, "content")
+	// An encrypted note shows a placeholder unless it was actually decrypted: no
+	// passphrase set, an empty body, or a body still in envelope form all mean we
+	// have only ciphertext. Once decryptResult has replaced the body with
+	// plaintext (passphrase set + unwrapped) it falls through and renders normally.
+	if boolean(n, "is_encrypted") && (!encryptionEnabled() || body == "" || crypto.IsEnvelope(body)) {
 		fmt.Println(dim("[encrypted]"))
 		return
 	}
-	body := str(n, "content")
 	if strings.Contains(body, "<") && strings.Contains(body, ">") {
 		body = stripHTML(body)
 	}
@@ -330,6 +360,8 @@ func init() {
 	notesCreateCmd.Flags().String("notebook", "", "Notebook id (defaults to your default notebook)")
 	notesCreateCmd.Flags().String("source-url", "", "Source URL attribute")
 	notesCreateCmd.Flags().String("author", "", "Author attribute")
+	notesCreateCmd.Flags().Bool("encrypt", false, "Encrypt this note end-to-end (requires HARBOR_PASSPHRASE)")
+	notesCreateCmd.Flags().Bool("plaintext", false, "Force an unencrypted note even in a default_encrypt notebook")
 	addContentFlags(notesCreateCmd)
 
 	notesUpdateCmd.Flags().String("title", "", "New title")

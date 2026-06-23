@@ -251,6 +251,36 @@ Most note tasks never need `sync` — use the high-level commands.
 
 ---
 
+## Encryption  (end-to-end)
+
+Client-side, zero-knowledge note encryption. Set `HARBOR_PASSPHRASE` and the CLI
+**decrypts notes on read automatically** and **encrypts on write** in a
+`default_encrypt` notebook (or with `--encrypt`). The server only ever stores
+ciphertext.
+
+```bash
+export HARBOR_PASSPHRASE=$(op read "op://Vault/Harbor/passphrase")   # 1Password
+```
+
+| Command | What it does |
+|---|---|
+| `harbor crypto setup` | One-time: generate the keystore (master key wrapped by your passphrase). **Lost passphrase = unrecoverable.** Uses `HARBOR_PASSPHRASE` or prompts. |
+| `harbor crypto status` | Show whether a keystore exists, the passphrase is set, and it unlocks (no secrets printed). |
+| `harbor crypto sync` | Re-fetch + cache the keystore (e.g. after a rotation on another device). |
+| `harbor crypto rotate` | Change the passphrase (re-wraps the master key; no note re-encrypted). New passphrase via `HARBOR_NEW_PASSPHRASE` or prompt. |
+
+Write flags on `harbor notes create`: `--encrypt` (force, needs the passphrase),
+`--plaintext` (force off). Notes:
+
+- Decryption is automatic on `notes get/list`, `trash list`, `reminders list`.
+  A wrong/absent passphrase shows ciphertext (`[encrypted]`), never an error.
+- `notes update` re-seals an already-encrypted note; it refuses to write plaintext
+  into one without `HARBOR_PASSPHRASE`. `notes append` is unsupported on encrypted
+  notes; encrypted notes can't be searched, shared, or exported.
+- Interop format (HRBK1 keystore + HRBC2 envelope) is documented in `crypto/README.md`.
+
+---
+
 ## Settings  (aliases: `prefs`, `preferences`)
 
 Account preferences (NOT synced; last-write-wins). `set` is a partial update.

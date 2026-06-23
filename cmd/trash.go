@@ -35,7 +35,7 @@ var trashListCmd = &cobra.Command{
   harbor trash list --order title --limit 50
   harbor trash list --json | jq '.data[] | {id, title, trashed_at}'`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		c, _, err := loadClientFromConfig()
+		c, creds, err := loadClientFromConfig()
 		if err != nil {
 			return err
 		}
@@ -43,6 +43,7 @@ var trashListCmd = &cobra.Command{
 		if err != nil {
 			return mapTrashError(err)
 		}
+		data = decryptResult(c, creds, data)
 		printResult(data, displayTrash)
 		return nil
 	},

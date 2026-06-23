@@ -275,6 +275,30 @@ harbor share unpublish "$NOTE_ID" --json     # revoke (idempotent)
 
 Encrypted notes can never be shared.
 
+### Encryption (end-to-end, transparent)
+
+Harbor supports client-side, zero-knowledge encryption. Set `HARBOR_PASSPHRASE`
+and the CLI **decrypts notes on read automatically** and **encrypts on write**
+when a notebook is `default_encrypt` (or with `--encrypt`). The server only stores
+ciphertext — encrypted notes can't be searched, shared, or exported.
+
+```bash
+# Point HARBOR_PASSPHRASE at a secret manager (recommended):
+export HARBOR_PASSPHRASE=$(op read "op://Vault/Harbor/passphrase")
+
+harbor crypto setup                         # one time — LOST PASSPHRASE = UNRECOVERABLE
+harbor crypto status                        # keystore present? unlocks?
+harbor notes create --encrypt --title "Secret" --stdin <<<'top secret body'
+harbor notes get "$NOTE_ID" --json | jq -r '.content'   # auto-decrypted
+```
+
+With `HARBOR_PASSPHRASE` set, `notes get/list`, `trash list`, and `reminders
+list` all show plaintext; without it (or with the wrong one) you see ciphertext,
+never an error. As an agent you generally **cannot** run `crypto setup`
+interactively — if `harbor crypto status` shows no keystore, ask the user to set
+it up. Full command list: `reference.md` → Encryption. Interop format:
+`crypto/README.md`.
+
 ### Trash, restore, and history
 
 ```bash
