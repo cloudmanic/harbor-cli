@@ -26,6 +26,8 @@ cmd/                    cobra command tree — ONE FILE PER DOMAIN
   notebooks.go          notes.go  tags.go  note_tags.go  sync.go  files.go  search.go
   history.go  trash.go  templates.go  shortcuts.go  reminders.go  insights.go
   share.go  settings.go  profile.go  sessions.go  account.go  importexport.go  operational.go
+  skill.go              `harbor skill install/show/path` — installs the bundled agent skill (Claude/Codex/Cursor)
+  assets/skill/         embedded skill content (SKILL.md + formatting.md + reference.md)
 client/                 HTTP client + API methods — ONE FILE PER DOMAIN
   client.go             Client, HTTP verbs, transparent-refresh, request plumbing
   errors.go             APIError (typed error envelope)

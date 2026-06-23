@@ -213,6 +213,7 @@ See `harbor search --help`.
 | `harbor status` | Server health (liveness, readiness, version). |
 | `harbor api-version` | Server build version. |
 | `harbor openapi` | Fetch the OpenAPI 3.0 spec. |
+| `harbor skill install/show/path` | Install the bundled AI-agent skill (Claude Code, Codex, Cursor — see below). |
 
 ## Using with AI agents
 
@@ -236,6 +237,35 @@ See `harbor search --help`.
   surface the `request_id` for support.
 - **Self-describing API.** `harbor openapi --output harbor.json` fetches the
   full OpenAPI 3.0 spec for tooling or codegen.
+
+### Install the agent skill
+
+`harbor` ships a self-contained **skill** that teaches an AI coding agent how to
+drive the CLI — creating, **editing**, and **richly formatting** notes
+(Markdown/HTML, checklists, tables, colors, embedded files, note-to-note links),
+organizing notebooks and tags, searching, reminders, and sharing. Installing it
+turns your agent into a capable Harbor notes assistant.
+
+It installs in each agent's native form (`--agent`):
+
+```sh
+harbor skill install                  # Claude Code → ~/.claude/skills/harbor/ (a skill dir)
+harbor skill install --agent codex    # Codex       → ~/.codex/AGENTS.md (a managed block)
+harbor skill install --agent cursor   # Cursor      → .cursor/rules/harbor.mdc (a rule file)
+
+harbor skill install --force          # reinstall after a CLI upgrade
+harbor skill install --project        # the project-scoped variant
+harbor skill show                     # print the skill (also: show formatting.md | reference.md)
+harbor skill path --agent codex       # print where it installs
+```
+
+The skill is embedded in the binary, so a fresh `harbor` upgrade carries the
+latest skill. Re-installing **backs up any existing copy** first (a timestamped
+`.backup-*`), so your edits are never lost — and for Codex's shared `AGENTS.md`
+only the delimited Harbor block is replaced, leaving the rest of the file intact.
+For Cursor and Codex the deep-dive guides aren't copied to disk; the skill tells
+the agent to fetch them on demand with `harbor skill show formatting.md` /
+`reference.md`. Use `--dir <path>` to target any other directory.
 
 ## Exit codes
 
