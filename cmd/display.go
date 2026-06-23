@@ -65,6 +65,10 @@ func dim(s string) string { return colorize(s, text.Faint) }
 // bold renders bold text (used to emphasize ids and headline values).
 func bold(s string) string { return colorize(s, text.Bold) }
 
+// redWarn renders bold red text for prominent, hard-to-miss warnings (used by
+// the irreversible encryption-setup notice).
+func redWarn(s string) string { return colorize(s, text.FgRed, text.Bold) }
+
 // star renders the default-marker glyph in yellow.
 func star() string { return colorize("★", text.FgYellow) }
 

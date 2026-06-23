@@ -114,11 +114,24 @@ func defaultDeviceName() string {
 	return "harbor-cli on " + host
 }
 
+// sharedStdin is a single buffered reader over os.Stdin, lazily created. Multiple
+// non-interactive prompts in one invocation (e.g. crypto rotate's new + confirm)
+// MUST read from the same reader — a fresh bufio.Reader per call would let the
+// first read buffer past its newline and leave the next call at EOF.
+var sharedStdin *bufio.Reader
+
+// stdinReader returns the process-wide buffered stdin reader.
+func stdinReader() *bufio.Reader {
+	if sharedStdin == nil {
+		sharedStdin = bufio.NewReader(os.Stdin)
+	}
+	return sharedStdin
+}
+
 // promptLine reads a single trimmed line from stdin after printing a prompt.
 func promptLine(label string) (string, error) {
 	fmt.Print(label)
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
+	line, err := stdinReader().ReadString('\n')
 	if err != nil && line == "" {
 		return "", err
 	}
@@ -132,8 +145,7 @@ func promptLine(label string) (string, error) {
 // bytes are never stored or logged.
 func promptPassword(label string) (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		reader := bufio.NewReader(os.Stdin)
-		line, err := reader.ReadString('\n')
+		line, err := stdinReader().ReadString('\n')
 		if err != nil && line == "" {
 			return "", err
 		}
@@ -279,6 +291,9 @@ var logoutCmd = &cobra.Command{
 		if err := config.Clear(); err != nil {
 			return err
 		}
+		// Drop the cached (wrapped) keystore blob too, so a logout leaves no
+		// account-specific encryption state behind.
+		_ = config.ClearKeystoreBlob()
 		if allDevices {
 			fmt.Println("Logged out of all devices.")
 		} else {
