@@ -8,9 +8,60 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 )
+
+// parseTimeToEpochMS converts a flexible time input into UTC epoch
+// milliseconds, accepting: a raw epoch-ms integer; an RFC3339 timestamp
+// (2026-06-22T15:04:05Z); a date (2026-06-22); or a relative offset like
+// "in 2h", "in 30m", "in 3d". Used by reminder/time flags across commands.
+func parseTimeToEpochMS(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, errors.New("empty time value")
+	}
+
+	// Raw epoch milliseconds.
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return n, nil
+	}
+
+	// Relative offset: "in <N><unit>" where unit is m/h/d.
+	if rel := strings.TrimSpace(strings.TrimPrefix(s, "in ")); rel != s {
+		if d, err := parseSimpleDuration(rel); err == nil {
+			return time.Now().Add(d).UnixMilli(), nil
+		}
+	}
+
+	// RFC3339 timestamp.
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC().UnixMilli(), nil
+	}
+
+	// Plain date (treated as midnight UTC).
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.UTC().UnixMilli(), nil
+	}
+
+	return 0, fmt.Errorf("could not parse time %q (use epoch-ms, RFC3339, YYYY-MM-DD, or \"in 2h\")", s)
+}
+
+// parseSimpleDuration parses durations including the day unit ("3d"), which
+// time.ParseDuration does not support, falling back to it for h/m/s.
+func parseSimpleDuration(s string) (time.Duration, error) {
+	if strings.HasSuffix(s, "d") {
+		n, err := strconv.Atoi(strings.TrimSuffix(s, "d"))
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
+}
 
 // defaultContentFormat is the CLI's default interpretation of body content.
 // Markdown is the friendliest input for humans and agents; the server converts
